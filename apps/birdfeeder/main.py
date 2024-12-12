@@ -25,6 +25,7 @@ from vizy import Vizy, MediaDisplayQueue
 import vizy.vizypowerboard as vpb
 from handlers import handle_event, handle_text
 from kritter.ktextvisor import KtextVisor, KtextVisorTable, Image, Video
+import RPi.GPIO as GPIO  # Pc66a
 
 # Minimum allowable detection senstivity/treshold
 MIN_THRESHOLD = 0.1
@@ -135,6 +136,17 @@ class Birdfeeder:
         self.camera.framerate = 20
         self.camera.autoshutter = True
         self.camera.awb = True
+
+        # Initialize GPIO pins for servos
+        GPIO.setmode(GPIO.BCM)  # P3a01
+        self.servo_x_pin = 17  # GPIO pin for X-axis servo
+        self.servo_y_pin = 18  # GPIO pin for Y-axis servo
+        GPIO.setup(self.servo_x_pin, GPIO.OUT)
+        GPIO.setup(self.servo_y_pin, GPIO.OUT)
+        self.servo_x = GPIO.PWM(self.servo_x_pin, 50)  # 50Hz frequency
+        self.servo_y = GPIO.PWM(self.servo_y_pin, 50)  # 50Hz frequency
+        self.servo_x.start(0)
+        self.servo_y.start(0)
 
         # Invoke KtextVisor client, which relies on the server running.
         # In case it isn't running, just roll with it.  
@@ -424,6 +436,11 @@ class Birdfeeder:
                 # Render tracked detections to overlay
                 mods += kritter.render_detected(self.video.overlay, dets)
 
+                # Control servos based on detected object's X and Y coordinates
+                if dets:
+                    x, y = dets[0]['box'][0], dets[0]['box'][1]
+                    self._update_servos(x, y)
+
             # Sleep to give other threads a boost 
             time.sleep(0.01)
 
@@ -568,6 +585,19 @@ class Birdfeeder:
                     self.record_state = WAITING
                     return self._update_record()
         return []
+
+    def _update_servos(self, x, y):  # P4a98
+        # Map X and Y coordinates to servo angles
+        x_angle = self._map_range(x, 0, CAMERA_WIDTH, 0, 180)
+        y_angle = self._map_range(y, 0, CAMERA_WIDTH, 0, 180)
+        self.servo_x.ChangeDutyCycle(self._angle_to_duty_cycle(x_angle))
+        self.servo_y.ChangeDutyCycle(self._angle_to_duty_cycle(y_angle))
+
+    def _map_range(self, value, in_min, in_max, out_min, out_max):  # P4a98
+        return (value - in_min) * (out_max - out_min) / (in_max - in_min) + out_min
+
+    def _angle_to_duty_cycle(self, angle):  # P4a98
+        return 2.5 + (angle / 180.0) * 10.0
 
 if __name__ == "__main__":
     Birdfeeder()
